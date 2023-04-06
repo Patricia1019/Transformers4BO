@@ -13,16 +13,18 @@ import encoders
 import positional_encodings
 import bar_distribution
 import priors
+import pandas as pd
 
 
 class BayesianOptimization:
-    def __init__(self, objective_function, bounds):
+    def __init__(self, objective_function, bounds,n_init):
         self.objective_function = objective_function
         self.bounds = bounds
         self.n_dims = len(bounds)
         self.X = []
         self.y = []
         self.gpr = GaussianProcessRegressor(kernel=Matern(nu=2.5), alpha=0.01)
+        self.initialize(n_init)
 
     def initialize(self, n_init):
         for i in range(n_init):
@@ -44,7 +46,7 @@ class BayesianOptimization:
         x_next = None
         max_ei = -np.inf
         bounds = np.array(self.bounds)
-        for i in range(2000):
+        for i in range(200):
             x = np.random.uniform(bounds[:, 0], bounds[:, 1])
             ei = self._acquisition(x)
             if ei > max_ei:
@@ -53,7 +55,7 @@ class BayesianOptimization:
         return x_next
 
     def optimize(self, n_iter, n_init=5):
-        self.initialize(n_init)
+        # self.initialize(n_init)
         min_y = np.inf
         for i in range(n_iter):
             x_next = self._next_sample()
@@ -66,13 +68,14 @@ class BayesianOptimization:
         return self.X[np.argmin(self.y)]
 
 class PTBayesianOptimization:
-    def __init__(self, objective_function, bounds, model):
+    def __init__(self, objective_function, bounds, model,n_init):
         self.objective_function = objective_function
         self.bounds = bounds
         self.n_dims = len(bounds)
         self.X = []
         self.y = []
         self.model = model
+        self.initialize(n_init)
 
     def initialize(self, n_init):
         # self.X = [np.array([0.23180091, 0.94422106, 0.42501595, 0.26483917, 0.23192972]), \
@@ -111,7 +114,7 @@ class PTBayesianOptimization:
         #         x_next = x
         #         max_ei = ei
         eval_points = 100
-        batch_num = 20
+        batch_num = 2
         x = np.random.uniform(bounds[:, 0], bounds[:, 1],(batch_num,eval_points,bounds[:,0].shape[0]))
         ei = self._acquisition(x)
         x = x.reshape(-1,x.shape[-1])
@@ -121,7 +124,7 @@ class PTBayesianOptimization:
         return x_next
 
     def optimize(self, n_iter, n_init=5):
-        self.initialize(n_init)
+        # self.initialize(n_init)
         min_y = np.inf
         for i in range(n_iter):
             x_next = self._next_sample()
@@ -156,12 +159,13 @@ if __name__ == '__main__':
         epoch_list = [200]
         batch_fraction = 8
         draw_flag = False
-        data_augment = False
+        data_augment = True
         lr = 0.0008
         epochs = 625
-        root_dir = '/home/ypq/TransformersCanDoBayesianInference/myresults/GPfitting_parallel'
+        root_dir = '/home/ypq/TransformersCanDoBayesianInference/myresults/GPfitting_data_augment'
         model = MyTransformerModel(encoder, num_borders, emsize, 4, 2*emsize, 6, 0.0,
                         y_encoder=encoders.Linear(1, emsize), input_normalization=False,
+                        # pos_encoder=positional_encodings.NoPositionalEncoding(emsize, bptt*2),
                         pos_encoder=positional_encodings.NoPositionalEncoding(emsize, bptt*2),
                         decoder=None
                         )
@@ -171,14 +175,22 @@ if __name__ == '__main__':
         model.load_state_dict({k.replace('module.',''):v for k,v in checkpoint.items()})
         model.eval()
     max_sum = 0
-    iter_num = 10
+    iter_num = 100
+    n_init = 50
+    if PT:
+        out_path = f'./PT_iter{iter_num}_init{n_init}.xlsx'
+    else:
+        out_path = f'./GP_iter{iter_num}_init{n_init}.xlsx'
+    results = {}
+    results['max value'] = []
+    results['time'] = []
     for _ in range(iter_num):
         if PT:
-            bo = PTBayesianOptimization(function, bounds, model)
+            bo = PTBayesianOptimization(function, bounds, model,n_init=n_init)
         else:
-            bo = BayesianOptimization(function, bounds)
+            bo = BayesianOptimization(function, bounds,n_init=n_init)
         t1 = time()
-        x_min = bo.optimize(n_iter=20,n_init=50)
+        x_min = bo.optimize(n_iter=20)
         t2 = time()
         # print("Input values: ")
         # print(x_min)
@@ -186,5 +198,34 @@ if __name__ == '__main__':
         print(-function(x_min))
         print(f"time: {t2-t1}")
         max_sum += -function(x_min)
+        results['max value'].append(-function(x_min)[0])
+        results['time'].append(t2-t1)
+    df = pd.DataFrame(results)
+    df.to_excel(out_path,index=False)
     print(f"avg:{max_sum/iter_num}")
+
+
+    # simple regret
+    # iter_num = 200
+    # n_init = 5000
+    # results = {}
+    # results['iter_num'] = []
+    # results['PT regret value'] = []
+    # results['GP regret value'] = []
+    # out_path = f'./simple_regret_total{iter_num}_init{n_init}.xlsx'
+    # PTBO = PTBayesianOptimization(function, bounds, model,n_init=n_init)
+    # GPBO = BayesianOptimization(function, bounds,n_init=2000)
+    # for i in range(1,iter_num+1):
+    #     PT_x_min = PTBO.optimize(n_iter=1)
+    #     GP_x_min = GPBO.optimize(n_iter=1)
+    #     print("PT regret value: ")
+    #     print(1+function(PT_x_min))
+    #     print("GP regret value: ")
+    #     print(1+function(GP_x_min))
+    #     results['iter_num'].append(i)
+    #     results['PT regret value'].append(1+function(PT_x_min)[0])
+    #     results['GP regret value'].append(1+function(GP_x_min)[0])
+    # df = pd.DataFrame(results)
+    # df.to_excel(out_path,index=False)
+
     
