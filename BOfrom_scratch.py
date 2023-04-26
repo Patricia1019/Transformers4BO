@@ -17,7 +17,7 @@ import pandas as pd
 
 
 class BayesianOptimization:
-    def __init__(self, objective_function, bounds, n_init, ac, k=None, v=None):
+    def __init__(self, objective_function, bounds, n_init, ac, k=None, v=None,init_point=None):
         self.objective_function = objective_function
         self.bounds = bounds
         self.n_dims = len(bounds)
@@ -26,15 +26,19 @@ class BayesianOptimization:
         self.ac = ac
         self.k = k
         self.v = v
+        self.init_point = init_point
         self.gpr = GaussianProcessRegressor(kernel=Matern(nu=2.5), alpha=0.01)
         self.initialize(n_init)
 
     def initialize(self, n_init):
-        for i in range(n_init):
-            x = np.array([np.random.uniform(self.bounds[i][0], self.bounds[i][1]) for i in range(self.n_dims)])
-            y = self.objective_function(x)
-            self.X.append(x)
-            self.y.append(y)
+        if self.init_point == None:
+            for i in range(n_init):
+                x = np.array([np.random.uniform(self.bounds[i][0], self.bounds[i][1]) for i in range(self.n_dims)])
+                y = self.objective_function(x)
+                self.X.append(x)
+                self.y.append(y)
+        else:
+            self.X,self.y = self.init_point
         self.gpr.fit(self.X, self.y)
 
     def _acquisition(self, X):
@@ -44,7 +48,10 @@ class BayesianOptimization:
             if sigma == 0:
                 return 0
             u = (y_hat - best_y) / sigma
-            ac_value =  (y_hat - best_y) * norm.cdf(u) + sigma * norm.pdf(u)
+            if self.v == None:
+                ac_value =  (y_hat - best_y) * norm.cdf(u) + sigma * norm.pdf(u)
+            else:
+                ac_value =  (y_hat - best_y - self.v) * norm.cdf(u) + sigma * norm.pdf(u)
         elif self.ac == 'UCB':
             assert self.k != None
             ac_value = y_hat +self. k * sigma
@@ -80,7 +87,7 @@ class BayesianOptimization:
         return self.X[np.argmax(self.y)]
 
 class PTBayesianOptimization:
-    def __init__(self, objective_function, bounds, model, n_init, ac, k=None, v=None):
+    def __init__(self, objective_function, bounds, model, n_init, ac, k=None, v=None,init_point=None):
         self.objective_function = objective_function
         self.bounds = bounds
         self.n_dims = len(bounds)
@@ -89,6 +96,7 @@ class PTBayesianOptimization:
         self.ac = ac
         self.k = k
         self.v = v
+        self.init_point = init_point
         self.model = model
         self.initialize(n_init)
 
@@ -98,11 +106,14 @@ class PTBayesianOptimization:
         # np.array([0.03780123, 0.47780602, 0.60053366, 0.56114713, 0.47477184]),\
         #  np.array([0.85959314, 0.80438238, 0.44738586, 0.97268328, 0.27733487]), \
         #  np.array([0.95092983, 0.67406061, 0.12863479, 0.65752681, 0.44891038])]
-        for i in range(n_init):
-            x = np.array([np.random.uniform(self.bounds[i][0], self.bounds[i][1]) for i in range(self.n_dims)])
-            y = self.objective_function(x)
-            self.X.append(x)
-            self.y.append(y)
+        if self.init_point == None:
+            for i in range(n_init):
+                x = np.array([np.random.uniform(self.bounds[i][0], self.bounds[i][1]) for i in range(self.n_dims)])
+                y = self.objective_function(x)
+                self.X.append(x)
+                self.y.append(y)
+        else:
+            self.X,self.y = self.init_point
 
     def _acquisition(self, X):
         train_X = torch.cat((torch.repeat_interleave(torch.tensor(np.array(self.X)).unsqueeze(0),repeats=X.shape[0],dim=0),torch.tensor(X)),1)
@@ -117,7 +128,10 @@ class PTBayesianOptimization:
             if sigma.equal(torch.zeros(sigma.shape)):
                 return torch.zeros(sigma.shape)
             u = (y_hat - best_y) / sigma
-            ac_value = (y_hat - best_y) * norm.cdf(u) + sigma * norm.pdf(u)
+            if self.v == None:
+                ac_value = (y_hat - best_y) * norm.cdf(u) + sigma * norm.pdf(u)
+            else:
+                ac_value = (y_card - best_y - self.v) * norm.cdf(u) + sigma * norm.pdf
         elif self.ac == 'UCB':
             assert self.k != None
             ac_value = y_hat + self.k * sigma
@@ -168,9 +182,86 @@ def function(x):
     return y
     # return x[0]**2 + x[1]**2
 
+class Function:
+    def __init__(self,type,noisy=False,return_value=False):
+        self.type = type
+        self.noisy = noisy
+        self.return_value = return_value
+
+    def quadratic(self,x): # max point: all 0.5, max value: 0, min value: -0.25*num_feature
+        x = np.array(x)
+        y = -np.sum((x-0.5)**2,-1)
+        if self.noisy:
+            y += 0.1 * np.random.randn(*y.shape)
+        y = np.array([y])
+        return y
+    def exponential(self,x): # max point: all 1, max value: np.e * num_feature, min value: num_feature
+        x = np.array(x)
+        y = np.sum(np.exp(x),-1)
+        if self.noisy:
+            y += 0.1 * np.random.randn(*y.shape)
+        y = np.array([y])
+        return y
+    def log(self,x): # max point: all 1, max value: np.log(2) * num_feature, min value: 0
+        x = np.array(x)
+        y = np.sum(np.log(x+1),-1)
+        if self.noisy:
+            y += 0.1 * np.random.randn(*y.shape)
+        y = np.array([y])
+        return y
+    def rosenbrock(self,x): # max point: all 1-0.1, max value: 0, min value: -((num_feature-1)*100+num_feature//2)
+        x = np.array(x)
+        x = x + 0.1
+        assert x.shape[0] > 1, "Rosenbrock function: Input must have at least 2 dimension"
+        y = -np.sum(100.0*(x[1:]-x[:-1]**2.0)**2.0 + (1-x[:-1])**2.0,-1)
+        if self.noisy:
+            y += 0.1 * np.random.randn(*y.shape)
+        y = np.array([y])
+        return y
+    def rastrigin(self,x): # max point: all 0+0.1, max value:0, min value≈-20.25*num_feature
+        x = np.array(x)
+        x = x - 0.1
+        A = 10
+        n_dim = x.shape[0]
+        y = -(A * n_dim + np.sum(x**2 - A * np.cos(2 * np.pi * x),-1))
+        if self.noisy:  
+            y += 0.1 * np.random.randn(*y.shape)
+        y = np.array([y])   
+        return y
+    def ackley(self,x): # max point: all 0+0.1, max value: 0, min value > 20*np.exp(-0.2)+np.exp(-1)-20-np.e
+        x = np.array(x)
+        x = x - 0.1
+        a = 20
+        b = 0.2
+        d = x.shape[0]
+        y = -(-a * np.exp(-b * np.sqrt(1.0/d * np.sum(x**2,-1))) - np.exp(1.0/d * np.sum(np.cos(2 * np.pi * x),-1)) + a + np.e)
+        if self.noisy:
+            y += 0.1 * np.random.randn(*y.shape)
+        y = np.array([y])
+        return y
+
+    def __call__(self,x=None):
+        if self.return_value:
+            if self.type == 'unimodel':
+                y_quadratic = self.quadratic(x)
+                y_exponential = self.exponential(x)
+                y_log = self.log(x)
+                y = {"quadratic":y_quadratic,"exponential":y_exponential,"log":y_log}
+            elif self.type == 'multimodel':
+                y_rosenbrock = self.rosenbrock(x)
+                y_rastrigin = self.rastrigin(x)
+                y_ackley = self.ackley(x)
+                y = {"rosenbrock":y_rosenbrock,"rastrigin":y_rastrigin,"ackley":y_ackley}
+            return y 
+        else:
+            if self.type == 'unimodel':
+                return {"quadratic":self.quadratic,"exponential":self.exponential,"log":self.log}
+            elif self.type =='multimodel':
+                return {"rosenbrock":self.rosenbrock,"rastrigin":self.rastrigin,"ackley":self.ackley}
+
 if __name__ == '__main__':
     PT = True
-    num_features = 5
+    num_features = 40
     bounds = [(0,1) for _ in range(num_features)]
     if PT:
         emsize = 512
@@ -187,7 +278,7 @@ if __name__ == '__main__':
         data_augment = True
         lr = 0.0008
         epochs = 625
-        root_dir = '/home/ypq/TransformersCanDoBayesianInference/myresults/GPfitting_data_augment'
+        root_dir = f'/home/ypq/TransformersCanDoBayesianInference/myresults/GPfitting_augment_{num_features}feature'
         model = MyTransformerModel(encoder, num_borders, emsize, 4, 2*emsize, 6, 0.0,
                         y_encoder=encoders.Linear(1, emsize), input_normalization=False,
                         # pos_encoder=positional_encodings.NoPositionalEncoding(emsize, bptt*2),

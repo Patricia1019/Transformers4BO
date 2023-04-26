@@ -40,13 +40,13 @@ iter_num = 10
 for _ in range(iter_num):
     t1 = time()
     candidate, acq_value = optimize_acqf(
-        EI, bounds=bounds, q=1, num_restarts=10, raw_samples=500,
+        EI, bounds=bounds, q=1, num_restarts=10, raw_samples=500000,
     )
     t2 = time()
     # print("Input values: ")
     # print(candidate)  # argmax
     print("maximum value: ")
     print(function(candidate).item())  # max value
-    # print(f"time: {t2-t1}")
+    print(f"time: {t2-t1}")
     max_sum += function(candidate).item()
 print(f"avg:{max_sum/iter_num}")
