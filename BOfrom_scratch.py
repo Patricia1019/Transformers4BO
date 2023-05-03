@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.stats import norm
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import Matern
+from sklearn.gaussian_process.kernels import Matern,RBF
 import torch
 import torch.nn as nn
 from time import time
@@ -14,7 +14,10 @@ import positional_encodings
 import bar_distribution
 import priors
 import pandas as pd
+from copy import deepcopy
 
+# Define the RBF kernel with a length scale of 0.6 and 1e-4 noise
+kernel = RBF(length_scale=0.6, length_scale_bounds=(1e-5, 1e5)) + 1e-4 * RBF(length_scale=1e-2)
 
 class BayesianOptimization:
     def __init__(self, objective_function, bounds, n_init, ac, k=None, v=None,init_point=None):
@@ -27,7 +30,7 @@ class BayesianOptimization:
         self.k = k
         self.v = v
         self.init_point = init_point
-        self.gpr = GaussianProcessRegressor(kernel=Matern(nu=2.5), alpha=0.01)
+        self.gpr = GaussianProcessRegressor(kernel=kernel, alpha=0)
         self.initialize(n_init)
 
     def initialize(self, n_init):
@@ -38,7 +41,9 @@ class BayesianOptimization:
                 self.X.append(x)
                 self.y.append(y)
         else:
-            self.X,self.y = self.init_point
+            x,y = self.init_point
+            self.X = deepcopy(x)
+            self.y = deepcopy(y)
         self.gpr.fit(self.X, self.y)
 
     def _acquisition(self, X):
@@ -113,7 +118,9 @@ class PTBayesianOptimization:
                 self.X.append(x)
                 self.y.append(y)
         else:
-            self.X,self.y = self.init_point
+            x,y = self.init_point
+            self.X = deepcopy(x)
+            self.y = deepcopy(y)
 
     def _acquisition(self, X):
         train_X = torch.cat((torch.repeat_interleave(torch.tensor(np.array(self.X)).unsqueeze(0),repeats=X.shape[0],dim=0),torch.tensor(X)),1)
@@ -218,23 +225,23 @@ class Function:
             y += 0.1 * np.random.randn(*y.shape)
         y = np.array([y])
         return y
-    def rastrigin(self,x): # max point: all 0+0.1, max value:0, min value≈-20.25*num_feature
+    def rastrigin(self,x,scale_factor=2): # max point: all 0+0.1, max value:0, min value≈-20.25*num_feature
         x = np.array(x)
         x = x - 0.1
         A = 10
         n_dim = x.shape[0]
-        y = -(A * n_dim + np.sum(x**2 - A * np.cos(2 * np.pi * x),-1))
+        y = -(A * n_dim + np.sum((scale_factor*x)**2 - A * np.cos(2 * np.pi * scale_factor * x),-1))
         if self.noisy:  
             y += 0.1 * np.random.randn(*y.shape)
         y = np.array([y])   
         return y
-    def ackley(self,x): # max point: all 0+0.1, max value: 0, min value > 20*np.exp(-0.2)+np.exp(-1)-20-np.e
+    def ackley(self,x,scale_factor=2): # max point: all 0+0.1, max value: 0, min value > 20*np.exp(-0.2)+np.exp(-1)-20-np.e
         x = np.array(x)
         x = x - 0.1
         a = 20
         b = 0.2
         d = x.shape[0]
-        y = -(-a * np.exp(-b * np.sqrt(1.0/d * np.sum(x**2,-1))) - np.exp(1.0/d * np.sum(np.cos(2 * np.pi * x),-1)) + a + np.e)
+        y = -(-a * np.exp(-b * np.sqrt(1.0/d * np.sum((scale_factor*x)**2,-1))) - np.exp(1.0/d * np.sum(np.cos(2 * np.pi * scale_factor * x),-1)) + a + np.e)
         if self.noisy:
             y += 0.1 * np.random.randn(*y.shape)
         y = np.array([y])
@@ -278,7 +285,7 @@ if __name__ == '__main__':
         data_augment = True
         lr = 0.0008
         epochs = 625
-        root_dir = f'/home/ypq/TransformersCanDoBayesianInference/myresults/GPfitting_augment_{num_features}feature'
+        root_dir = f'/home/ypq/TransformersCanDoBayesianInference/myresults/GPfitting_augmentTrue_{num_features}feature'
         model = MyTransformerModel(encoder, num_borders, emsize, 4, 2*emsize, 6, 0.0,
                         y_encoder=encoders.Linear(1, emsize), input_normalization=False,
                         # pos_encoder=positional_encodings.NoPositionalEncoding(emsize, bptt*2),
