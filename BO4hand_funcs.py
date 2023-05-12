@@ -16,14 +16,18 @@ def compute_mean_and_conf_interval(accuracies, confidence=.95):
 
 if __name__ == '__main__':
     PT = True
-    num_features = 40
+    num_features = 5
+    gp_mix = False
     bounds = [(0,1) for _ in range(num_features)]
     if PT:
         emsize = 512
         encoder = encoders.Linear(num_features,emsize)
         bptt = 2010
         hps = {'noise': 1e-4, 'outputscale': 1., 'lengthscale': .6, 'fast_computations': (False,False,False)}
-        ys = priors.fast_gp.get_batch_first(100000,20,num_features, hyperparameters=hps)[1]
+        if not gp_mix:
+            ys = priors.fast_gp.get_batch_first(100000,20,num_features, hyperparameters=hps)[1]
+        else:
+            ys = priors.fast_gp_mix.get_batch_first(100000,20,num_features, hyperparameters=hps)[1]
         # num_border_list = [1000,10000]
         num_borders = 1000
         batch_fraction = 8
@@ -31,7 +35,10 @@ if __name__ == '__main__':
         data_augment = True
         lr = 0.0008
         epochs = 625
-        root_dir = f'/home/ypq/TransformersCanDoBayesianInference/myresults/GPfitting_augmentTrue_{num_features}feature'
+        if not gp_mix:
+            root_dir = f'/home/ypq/TransformersCanDoBayesianInference/myresults/GPfitting_augmentTrue_{num_features}feature'
+        else:
+            root_dir = f'/home/ypq/TransformersCanDoBayesianInference/myresults/GPmix_augmentTrue_{num_features}feature'
         model = MyTransformerModel(encoder, num_borders, emsize, 4, 2*emsize, 6, 0.0,
                         y_encoder=encoders.Linear(1, emsize), input_normalization=False,
                         # pos_encoder=positional_encodings.NoPositionalEncoding(emsize, bptt*2),
@@ -49,10 +56,10 @@ if __name__ == '__main__':
     n_init = 50
     ac = 'EI'
     iter_step = 5
-    repeat_num = 100
+    repeat_num = 5
     objective_function = 'multimodel'
     noisy = False
-    out_root_path = f'./numerical_results2/PT&GP_comparison/{num_features}feature'
+    out_root_path = f'./numerical_results_mix{gp_mix}/PT&GP_comparison/{num_features}feature'
     if not os.path.exists(out_root_path):
         os.makedirs(out_root_path)
 
@@ -74,14 +81,14 @@ if __name__ == '__main__':
         results['GP regret value confidences'] = [0]*(iter_num//iter_step)
         max_value = max_values[function_name]
         scale_factor = scale_factors[function_name]
+        PT_regret_values = [torch.tensor([0.]*repeat_num)]*(iter_num//iter_step)
+        GP_regret_values = [torch.tensor([0.]*repeat_num)]*(iter_num//iter_step)
         for n in tqdm(range(repeat_num)):
             x = [np.array([np.random.uniform(bounds[i][0], bounds[i][1]) for i in range(num_features)]) for _ in range(n_init)]
             y = [function(i) for i in x]
             init_point = (x[:],y[:])
             PTBO = PTBayesianOptimization(function, bounds, model,n_init=n_init,ac=ac,init_point=init_point)
             GPBO = BayesianOptimization(function, bounds,n_init=n_init,ac=ac,init_point=init_point)
-            PT_regret_values = [torch.tensor([0.]*repeat_num)]*(iter_num//iter_step)
-            GP_regret_values = [torch.tensor([0.]*repeat_num)]*(iter_num//iter_step)
             for i in range(1,iter_num+1,iter_step):
                 PT_x_max = PTBO.optimize(n_iter=iter_step)
                 GP_x_max = GPBO.optimize(n_iter=iter_step)
@@ -91,9 +98,9 @@ if __name__ == '__main__':
                 print((max_value-function(GP_x_max))/scale_factor)
                 PT_regret_values[i//iter_step][n] = (max_value-function(PT_x_max)[0])/scale_factor
                 GP_regret_values[i//iter_step][n] = (max_value-function(GP_x_max)[0])/scale_factor
-
         # tmp1 = [results['PT regret value'][i]/repeat_num for i in range(iter_num//iter_step)]
         # tmp2 = [results['GP regret value'][i]/repeat_num for i in range(iter_num//iter_step)]
+        pdb.set_trace()
         results['PT regret values'] = [PT_regret_values[i].mean().item() for i in range(iter_num//iter_step)]
         results['GP regret values'] = [GP_regret_values[i].mean().item() for i in range(iter_num//iter_step)]
         results['PT regret value confidences'] = [compute_mean_and_conf_interval(PT_regret_values[i])[1] for i in range(iter_num//iter_step)]
