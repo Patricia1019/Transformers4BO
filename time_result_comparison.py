@@ -4,7 +4,7 @@ from tqdm import tqdm
 
 if __name__ == '__main__':
     PT = True
-    num_features = 40
+    num_features = 5
     bounds = [(0,1) for _ in range(num_features)]
     if PT:
         emsize = 512
@@ -38,8 +38,8 @@ if __name__ == '__main__':
     ac = 'EI'
     iter_step = 5
     repeat_num = 10
-    objective_function = 'unimodel'
-    init_points = 1600
+    objective_function = 'multimodel'
+    init_points = 3200
     iter_dict = {800:2,1600:5,3200:10,6400:20}
     noisy = False
     out_root_path = f'./numerical_results/time_results_comparison'
