@@ -38,13 +38,15 @@ if __name__ == '__main__':
     ac = 'EI'
     iter_step = 5
     repeat_num = 10
-    objective_function = 'multimodel'
+    objective_function = 'unimodel'
+    init_points = 1600
+    iter_dict = {800:2,1600:5,3200:10,6400:20}
     noisy = False
     out_root_path = f'./numerical_results/time_results_comparison'
     if not os.path.exists(out_root_path):
         os.makedirs(out_root_path)
 
-    out_path = f'{out_root_path}/simple_regret_{objective_function}_feature{num_features}_noisy{noisy}_total{iter_num}_init3200_repeat{repeat_num}.xlsx'
+    out_path = f'{out_root_path}/simple_regret_{objective_function}_feature{num_features}_noisy{noisy}_total{iter_num}_init{init_points}_repeat{repeat_num}.xlsx'
     writer = pd.ExcelWriter(out_path)
     functions = Function(type=objective_function,noisy=noisy)
     functions = functions()
@@ -60,14 +62,14 @@ if __name__ == '__main__':
         results['GP regret value'] = [0]*(iter_num//iter_step)
         max_value = max_values[function_name]
         scale_factor = scale_factors[function_name]
-        for n in tqdm(range(repeat_num)):
+        for n in tqdm(range(repeat_num//3)):
             x = [np.array([np.random.uniform(bounds[i][0], bounds[i][1]) for i in range(num_features)]) for _ in range(n_init)]
             y = [function(i) for i in x]
             init_point = (x[:],y[:])
             PTBO = BayesianOptimization(function, bounds,n_init=n_init,ac=ac,init_point=init_point)
             GPBO = BayesianOptimization(function, bounds,n_init=n_init,ac=ac,init_point=init_point)
             for i in range(1,iter_num+1,iter_step):
-                PT_x_max = PTBO.optimize(n_iter=iter_step*10)
+                PT_x_max = PTBO.optimize(n_iter=iter_step*iter_dict[init_points])
                 GP_x_max = GPBO.optimize(n_iter=iter_step)
                 print(f"{function_name} PT regret value: ")
                 print((max_value-function(PT_x_max))/scale_factor)
